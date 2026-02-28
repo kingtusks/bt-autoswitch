@@ -43,14 +43,14 @@ while true; do
   if [ "$MIC_ACTIVE" -gt 0 ]; then
     if [ "$CURRENT" != "mic" ]; then
       pactl set-card-profile "$CARD" "$PROFILE_MIC" 2>/dev/null && \
-        echo -e "${YELLOW}[$(date +%H:%M:%S)] Mic in use — switched to headset mode ($PROFILE_MIC)${RESET}" || \
+        echo -e "${YELLOW}[$(date +%H:%M:%S)] Mic in use > switched to headset mode ($PROFILE_MIC)${RESET}" || \
         echo -e "${RED}[$(date +%H:%M:%S)] WARNING: Failed to switch to headset mode${RESET}"
       CURRENT="mic"
     fi
   else
     if [ "$CURRENT" != "hq" ]; then
       pactl set-card-profile "$CARD" "$PROFILE_HQ" 2>/dev/null && \
-        echo -e "${GREEN}[$(date +%H:%M:%S)] Mic idle — switched to high quality ($PROFILE_HQ)${RESET}" || \
+        echo -e "${GREEN}[$(date +%H:%M:%S)] Mic idle > switched to high quality ($PROFILE_HQ)${RESET}" || \
         echo -e "${RED}[$(date +%H:%M:%S)] WARNING: Failed to switch to high quality mode${RESET}"
       CURRENT="hq"
     fi

@@ -74,11 +74,38 @@ PROFILE_LIST=$(pactl list cards | awk -v card="$CARD" '
 if [ -z "$PROFILE_HQ" ] || [ -z "$PROFILE_MIC" ]; then
   echo ""
   warn "Could not auto-detect profiles. Here are the available profiles:"
-  pactl list cards | grep -A 80 "Name: $CARD" | grep -B1 "Available: yes" | grep -v "Available\|--" || \
-    pactl list cards | grep -A 80 "Name: $CARD" | grep -E "^\s+(a2dp|headset|handsfree|off)" | awk '{print NR") "$1}'
+
+  AVAILABLE_PROFILES=$(pactl list cards | awk -v card="$CARD" '
+    $0 ~ card {found=1}
+    found && /Profiles:/ {inprofiles=1; next}
+    found && inprofiles && /^\t\t[a-z]/ {gsub(/:/, "", $1); print $1}
+    found && inprofiles && /^[^\t]/ && !/Profiles:/ {inprofiles=0; found=0}
+  ')
+
+  i=1
+  declare -A PROFILE_MAP
+  while IFS= read -r profile; do
+    [ -z "$profile" ] && continue
+    echo "  $i) $profile"
+    PROFILE_MAP[$i]="$profile"
+    i=$((i + 1))
+  done <<< "$AVAILABLE_PROFILES"
+
   echo ""
-  read -rp "Enter the HIGH QUALITY (A2DP) profile name: " PROFILE_HQ
-  read -rp "Enter the MIC/HEADSET profile name: " PROFILE_MIC
+  read -rp "Enter the HIGH QUALITY (A2DP) profile (name or number): " HQ_INPUT
+  read -rp "Enter the MIC/HEADSET profile (name or number): " MIC_INPUT
+
+  if [[ "$HQ_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$HQ_INPUT]}" ]; then
+    PROFILE_HQ="${PROFILE_MAP[$HQ_INPUT]}"
+  else
+    PROFILE_HQ="$HQ_INPUT"
+  fi
+
+  if [[ "$MIC_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$MIC_INPUT]}" ]; then
+    PROFILE_MIC="${PROFILE_MAP[$MIC_INPUT]}"
+  else
+    PROFILE_MIC="$MIC_INPUT"
+  fi
 fi
 
 echo ""
@@ -88,8 +115,40 @@ echo ""
 read -rp "Does this look right? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"
 if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-  read -rp "Enter the HIGH QUALITY (A2DP) profile name: " PROFILE_HQ
-  read -rp "Enter the MIC/HEADSET profile name: " PROFILE_MIC
+  echo ""
+  warn "Available profiles:"
+
+  AVAILABLE_PROFILES=$(pactl list cards | awk -v card="$CARD" '
+    $0 ~ card {found=1}
+    found && /Profiles:/ {inprofiles=1; next}
+    found && inprofiles && /^\t\t[a-z]/ {gsub(/:/, "", $1); print $1}
+    found && inprofiles && /^[^\t]/ && !/Profiles:/ {inprofiles=0; found=0}
+  ')
+
+  i=1
+  declare -A PROFILE_MAP
+  while IFS= read -r profile; do
+    [ -z "$profile" ] && continue
+    echo "  $i) $profile"
+    PROFILE_MAP[$i]="$profile"
+    i=$((i + 1))
+  done <<< "$AVAILABLE_PROFILES"
+
+  echo ""
+  read -rp "Enter the HIGH QUALITY (A2DP) profile (name or number): " HQ_INPUT
+  read -rp "Enter the MIC/HEADSET profile (name or number): " MIC_INPUT
+
+  if [[ "$HQ_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$HQ_INPUT]}" ]; then
+    PROFILE_HQ="${PROFILE_MAP[$HQ_INPUT]}"
+  else
+    PROFILE_HQ="$HQ_INPUT"
+  fi
+
+  if [[ "$MIC_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$MIC_INPUT]}" ]; then
+    PROFILE_MIC="${PROFILE_MAP[$MIC_INPUT]}"
+  else
+    PROFILE_MIC="$MIC_INPUT"
+  fi
 fi
 
 CONFIG_DIR="$HOME/.config/bt-autoswitch"
