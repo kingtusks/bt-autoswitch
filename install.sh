@@ -18,94 +18,72 @@ bold "bt-autoswitch installer"
 echo ""
 
 if ! command -v pactl &>/dev/null; then
-  error "ERROR: pactl not found. Install pulseaudio or pipewire-pulse and try again."
+  error "pactl not found. Install pulseaudio or pipewire-pulse and try again."
   exit 1
 fi
 
 info "Looking for Bluetooth audio card..."
 
-CARDS=$(pactl list cards short | grep bluez | awk '{print $2}')
-CARD_COUNT=$(echo "$CARDS" | grep -c . || true)
+mapfile -t CARDS < <(pactl list cards short | grep bluez | awk '{print $2}')
 
-if [ "$CARD_COUNT" -eq 0 ]; then
-  echo ""
-  error "ERROR: No Bluetooth card found."
-  warn "Make sure your headset is connected and try again."
+if [ "${#CARDS[@]}" -eq 0 ]; then
+  error "No Bluetooth card found. Make sure your headset is connected and try again."
   exit 1
-elif [ "$CARD_COUNT" -gt 1 ]; then
-  echo ""
+elif [ "${#CARDS[@]}" -gt 1 ]; then
   warn "Multiple Bluetooth cards found:"
-  i=1
-  while IFS= read -r card; do
-    echo "  $i) $card"
-    i=$((i + 1))
-  done <<< "$CARDS"
+  for i in "${!CARDS[@]}"; do
+    echo "  $((i+1))) ${CARDS[$i]}"
+  done
   echo ""
   read -rp "Which one is your headset? (enter number): " CHOICE
-  CARD=$(echo "$CARDS" | sed -n "${CHOICE}p")
+  CARD="${CARDS[$((CHOICE-1))]}"
 else
-  CARD="$CARDS"
+  CARD="${CARDS[0]}"
 fi
 
 success "Using card: $CARD"
 echo ""
 
-info "Available profiles for $CARD:"
-PROFILES=$(pactl list cards | awk "/Name: $CARD/,/^$/" | grep "Name:" | grep -v "^Name: $CARD" | awk '{print $2}')
+mapfile -t ALL_PROFILES < <(pactl list cards | grep -A 200 "Name: $CARD" | grep -A 100 "Profiles:" | grep -B 100 "Active Profile:" | grep -oP '^\s+\K\S+(?=:)' | grep -v "Profiles\|Active\|off")
 
-if [ -z "$PROFILES" ]; then
-  PROFILES=$(pactl list cards | awk "/bluez_card/,/^  Profiles:/{next} /^  Profiles:/,/^  Active Profile:/{print}" | grep -oP '(?<=Name: ).*')
+if [ "${#ALL_PROFILES[@]}" -eq 0 ]; then
+  error "Could not read profiles for $CARD. Is the headset connected?"
+  exit 1
 fi
 
-PROFILE_HQ=$(pactl list cards | awk "/Name: $CARD/,/^$/" | grep -i "a2dp" | head -1 | grep -oP '(?<=Name: ).*' || true)
-PROFILE_MIC=$(pactl list cards | awk "/Name: $CARD/,/^$/" | grep -iE "headset_head_unit|handsfree_head_unit|hsp|hfp" | head -1 | grep -oP '(?<=Name: ).*' || true)
-
-echo ""
-echo "Fetching profiles..."
-ALL_PROFILES=$(pactl list cards | grep -A 50 "Name: $CARD" | grep -E "^\s+\S+:$" | grep -v "Properties\|Ports\|Active" | sed 's/[: ]//g' || true)
-
-PROFILE_LIST=$(pactl list cards | awk -v card="$CARD" '
-  $0 ~ card {found=1}
-  found && /Profiles:/ {inprofiles=1}
-  found && inprofiles && /^\t\t[a-z]/ {print $1}
-  found && inprofiles && /^[^\t]/ && !/Profiles:/ {inprofiles=0; found=0}
-' | sed 's/://')
-
-if [ -z "$PROFILE_HQ" ] || [ -z "$PROFILE_MIC" ]; then
+pick_profile() {
+  local prompt="$1"
+  warn "$prompt"
+  for i in "${!ALL_PROFILES[@]}"; do
+    echo "  $((i+1))) ${ALL_PROFILES[$i]}"
+  done
   echo ""
-  warn "Could not auto-detect profiles. Here are the available profiles:"
+  while true; do
+    read -rp "Enter number: " CHOICE
+    if [[ "$CHOICE" =~ ^[0-9]+$ ]] && [ "$CHOICE" -ge 1 ] && [ "$CHOICE" -le "${#ALL_PROFILES[@]}" ]; then
+      echo "${ALL_PROFILES[$((CHOICE-1))]}"
+      return
+    fi
+    error "Invalid choice, try again."
+  done
+}
 
-  AVAILABLE_PROFILES=$(pactl list cards | awk -v card="$CARD" '
-    $0 ~ card {found=1}
-    found && /Profiles:/ {inprofiles=1; next}
-    found && inprofiles && /^\t\t[a-z]/ {gsub(/:/, "", $1); print $1}
-    found && inprofiles && /^[^\t]/ && !/Profiles:/ {inprofiles=0; found=0}
-  ')
+PROFILE_HQ=""
+PROFILE_MIC=""
 
-  i=1
-  declare -A PROFILE_MAP
-  while IFS= read -r profile; do
-    [ -z "$profile" ] && continue
-    echo "  $i) $profile"
-    PROFILE_MAP[$i]="$profile"
-    i=$((i + 1))
-  done <<< "$AVAILABLE_PROFILES"
+for p in "${ALL_PROFILES[@]}"; do
+  [[ "$p" == *a2dp* ]] && PROFILE_HQ="$p"
+  [[ "$p" == *headset* || "$p" == *handsfree* ]] && PROFILE_MIC="$p"
+done
 
+if [ -z "$PROFILE_HQ" ]; then
   echo ""
-  read -rp "Enter the HIGH QUALITY (A2DP) profile (name or number): " HQ_INPUT
-  read -rp "Enter the MIC/HEADSET profile (name or number): " MIC_INPUT
+  PROFILE_HQ=$(pick_profile "Could not auto-detect A2DP profile. Pick the HIGH QUALITY (no mic) profile:")
+fi
 
-  if [[ "$HQ_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$HQ_INPUT]}" ]; then
-    PROFILE_HQ="${PROFILE_MAP[$HQ_INPUT]}"
-  else
-    PROFILE_HQ="$HQ_INPUT"
-  fi
-
-  if [[ "$MIC_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$MIC_INPUT]}" ]; then
-    PROFILE_MIC="${PROFILE_MAP[$MIC_INPUT]}"
-  else
-    PROFILE_MIC="$MIC_INPUT"
-  fi
+if [ -z "$PROFILE_MIC" ]; then
+  echo ""
+  PROFILE_MIC=$(pick_profile "Could not auto-detect headset profile. Pick the MIC profile:")
 fi
 
 echo ""
@@ -114,55 +92,25 @@ info "  Mic/headset profile:  $PROFILE_MIC"
 echo ""
 read -rp "Does this look right? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"
-if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-  echo ""
-  warn "Available profiles:"
-
-  AVAILABLE_PROFILES=$(pactl list cards | awk -v card="$CARD" '
-    $0 ~ card {found=1}
-    found && /Profiles:/ {inprofiles=1; next}
-    found && inprofiles && /^\t\t[a-z]/ {gsub(/:/, "", $1); print $1}
-    found && inprofiles && /^[^\t]/ && !/Profiles:/ {inprofiles=0; found=0}
-  ')
-
-  i=1
-  declare -A PROFILE_MAP
-  while IFS= read -r profile; do
-    [ -z "$profile" ] && continue
-    echo "  $i) $profile"
-    PROFILE_MAP[$i]="$profile"
-    i=$((i + 1))
-  done <<< "$AVAILABLE_PROFILES"
-
-  echo ""
-  read -rp "Enter the HIGH QUALITY (A2DP) profile (name or number): " HQ_INPUT
-  read -rp "Enter the MIC/HEADSET profile (name or number): " MIC_INPUT
-
-  if [[ "$HQ_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$HQ_INPUT]}" ]; then
-    PROFILE_HQ="${PROFILE_MAP[$HQ_INPUT]}"
-  else
-    PROFILE_HQ="$HQ_INPUT"
-  fi
-
-  if [[ "$MIC_INPUT" =~ ^[0-9]+$ ]] && [ -n "${PROFILE_MAP[$MIC_INPUT]}" ]; then
-    PROFILE_MIC="${PROFILE_MAP[$MIC_INPUT]}"
-  else
-    PROFILE_MIC="$MIC_INPUT"
-  fi
-fi
+case "$CONFIRM" in
+  [Nn]*)
+    echo ""
+    PROFILE_HQ=$(pick_profile "Pick the HIGH QUALITY (no mic) profile:")
+    echo ""
+    PROFILE_MIC=$(pick_profile "Pick the MIC profile:")
+    ;;
+esac
 
 CONFIG_DIR="$HOME/.config/bt-autoswitch"
 mkdir -p "$CONFIG_DIR"
 
 cat > "$CONFIG_DIR/config" <<EOF
-# bt-autoswitch config — generated by install.sh
 CARD="$CARD"
 PROFILE_HQ="$PROFILE_HQ"
 PROFILE_MIC="$PROFILE_MIC"
 POLL_INTERVAL=2
 EOF
 
-echo ""
 success "Config saved to $CONFIG_DIR/config"
 
 mkdir -p "$HOME/.local/bin"
@@ -170,10 +118,8 @@ cp "$(dirname "$0")/bt-autoswitch.sh" "$HOME/.local/bin/bt-autoswitch"
 chmod +x "$HOME/.local/bin/bt-autoswitch"
 success "Script installed to ~/.local/bin/bt-autoswitch"
 
-AUTOSTART_DIR="$HOME/.config/autostart"
-mkdir -p "$AUTOSTART_DIR"
-
-cat > "$AUTOSTART_DIR/bt-autoswitch.desktop" <<EOF
+mkdir -p "$HOME/.config/autostart"
+cat > "$HOME/.config/autostart/bt-autoswitch.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=bt-autoswitch
@@ -185,12 +131,9 @@ X-GNOME-Autostart-enabled=true
 EOF
 
 success "Autostart entry created"
-
 echo ""
 bold "Installation complete!"
 echo ""
 info "bt-autoswitch will start automatically on your next login."
-echo "To start it now, run:"
-echo "  bt-autoswitch &"
-echo ""
-echo "To uninstall, run: bash uninstall.sh"
+echo "To start it now:  bt-autoswitch &"
+echo "To uninstall:     bash uninstall.sh"
