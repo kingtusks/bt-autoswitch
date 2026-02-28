@@ -30,7 +30,7 @@ fi
 
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
 
-CALL_APPS="${CALL_APPS:-discord chrome chromium firefox zoom teams slack webex}"
+CALL_APPS="${CALL_APPS:-discord brave chrome chromium firefox zoom teams slack webex}"
 
 CURRENT=""
 

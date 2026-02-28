@@ -109,7 +109,6 @@ CARD="$CARD"
 PROFILE_HQ="$PROFILE_HQ"
 PROFILE_MIC="$PROFILE_MIC"
 POLL_INTERVAL=2
-CALL_APPS="discord chrome chromium firefox zoom teams slack webex brave"
 EOF
 
 success "Config saved to $CONFIG_DIR/config"
