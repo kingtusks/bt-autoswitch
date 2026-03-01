@@ -29,10 +29,13 @@ if [ -z "$CARD" ] || [ -z "$PROFILE_HQ" ] || [ -z "$PROFILE_MIC" ]; then
 fi
 
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
-
 CALL_APPS="${CALL_APPS:-discord brave chrome chromium firefox zoom teams slack webex}"
+CALL_THRESHOLD="${CALL_THRESHOLD:-4}"
+LEAVE_THRESHOLD="${LEAVE_THRESHOLD:-3}"
 
 CURRENT=""
+CALL_COUNTER=0
+LEAVE_COUNTER=0
 
 bold "bt-autoswitch started"
 info "  Card:        $CARD"
@@ -54,18 +57,23 @@ while true; do
   done
 
   if [ "$IN_CALL" = true ]; then
-    if [ "$CURRENT" != "mic" ]; then
+    LEAVE_COUNTER=0
+    CALL_COUNTER=$((CALL_COUNTER + 1))
+    if [ "$CALL_COUNTER" -ge "$CALL_THRESHOLD" ] && [ "$CURRENT" != "mic" ]; then
       pactl set-card-profile "$CARD" "$PROFILE_MIC" 2>/dev/null && \
         warn "[$(date +%H:%M:%S)] Call detected — switched to headset mode ($PROFILE_MIC)" || \
         error "[$(date +%H:%M:%S)] Failed to switch to headset mode"
       CURRENT="mic"
     fi
   else
-    if [ "$CURRENT" != "hq" ]; then
+    CALL_COUNTER=0
+    LEAVE_COUNTER=$((LEAVE_COUNTER + 1))
+    if [ "$LEAVE_COUNTER" -ge "$LEAVE_THRESHOLD" ] && [ "$CURRENT" != "hq" ]; then
       pactl set-card-profile "$CARD" "$PROFILE_HQ" 2>/dev/null && \
         success "[$(date +%H:%M:%S)] No call — switched to high quality ($PROFILE_HQ)" || \
         error "[$(date +%H:%M:%S)] Failed to switch to high quality mode"
       CURRENT="hq"
+      LEAVE_COUNTER=0
     fi
   fi
 
